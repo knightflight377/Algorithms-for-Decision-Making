@@ -1,0 +1,245 @@
+---
+title: "Final Project"
+author: "AMS, EH, IT"
+date: "December 18, 2015"
+output: pdf_document
+---
+
+```{r,warning=FALSE,message=FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+Loading the dataset
+```{r}
+Titanic <- read.csv("~/Documents/College1516/Algorithms for Decision Making/Final Project/Titanic.csv")
+
+names(Titanic)
+str(Titanic)
+nrow(Titanic)
+summary(Titanic)
+```
+
+Primary response variable of interest is, obviously, whether or not they survived
+
+After looking at exploratory plots, we've decided to use age and ticket fare as our explanatory variables
+
+...
+
+Method 1: Principal Component Analysis
+
+Tinkering with the dataset (removing non-numeric variables)
+```{r}
+Titanic <- select(Titanic,-cabin,-embarked,-home.dest,-ticket,-body,-boat,-name)
+
+Titanic <- mutate(Titanic, sex.val=
+                    ifelse(sex=="male",4,5))
+
+
+Titanic <-select(Titanic,-sex)
+names(Titanic)
+
+newdata <- na.omit(Titanic)
+```
+
+
+Get a random sample of rows, columns
+```{r}
+nr <- nrow(newdata)
+nc <- ncol(newdata)
+
+num <- 99
+numPred <- 6
+sampR <- sample(nr,num)
+sampC <- sample(nc,numPred)
+newdata <- newdata[sampR,sampC]
+
+nrow(newdata)
+```
+
+
+PCA plots
+```{r}
+titanic.pca <- prcomp(newdata,scale=T) 
+biplot(titanic.pca)
+plot(titanic.pca)
+```
+
+
+Setting up variables necessary for trees, hierarchical cluster
+```{r}
+rots <- titanic.pca$rotation
+dim(rots)
+dim(newdata)
+
+dd <- as.matrix(newdata[,1:ncol(newdata)])
+dd <- as.matrix(dd)
+dim(rots)
+dim(dd)
+pca1 <- dd %*% rots[,1]
+pca2 <- dd %*% rots[,2]
+pca3 <- dd %*% rots[,3]
+```
+
+
+Plotting trees, hierarchical cluster
+```{r}
+titanic.hcclust.c <- hclust(dist(newdata),method="complete")
+titanic.hcclust.a <- hclust(dist(newdata),method="average")
+titanic.hcclust.s <- hclust(dist(newdata),method="single")
+
+
+plot(titanic.hcclust.c)
+
+plot(titanic.hcclust.a)
+
+plot(titanic.hcclust.s)
+
+library(ggdendro)
+titanic.dendr <- dendro_data(titanic.hcclust.c)
+
+titanic.dendr.gg <- ggplot() + 
+  geom_segment(data=segment(titanic.dendr),
+               aes(x=x, y=y, xend=xend, yend=yend),
+               size=.1) + 
+  geom_text(data=label(titanic.dendr),
+            aes(x=x, y=y, label=label, hjust=0),
+            size=3,color="blue") +
+  coord_flip() +
+  scale_y_reverse(expand=c(0.2, 0))+ 
+  theme(axis.line.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.y=element_blank(),        
+        panel.background=element_rect(fill="white"),
+        panel.grid=element_blank())+
+  ggtitle("Hierarchical Clustering")
+titanic.dendr.gg
+```
+
+
+Doing cuts on the tree, just for craps and giggles
+```{r}
+cat <- cutree(titanic.hcclust.s,k=6)
+cat
+
+titanic.cut.c <- hclust(dist(cat),method="complete")
+plot(titanic.cut.c)
+```
+
+For example, during a practice run with k = 6, passengers 446, 228, 130 clustered together; looking at the data, we find that all three of these passengers are roughly the same age (early 20s)
+
+
+
+Method 2: Support Vector Machines
+
+Adding in the necessary libraries, re-loading the data (just in case).
+We don't omit the na rows.
+```{r,warning=FALSE,message=FALSE}
+library(MASS)
+library(e1071)
+library(ROCR)
+
+Titanic <- read.csv("~/Documents/College1516/Algorithms for Decision Making/Final Project/Titanic.csv")
+nrow(Titanic)
+```
+
+
+Creating a data frame, splitting it into training and testing.
+```{r}
+Titanic.df <-data.frame(Titanic)
+nrow(Titanic.df)
+
+N<-nrow(Titanic.df)
+K <- N/5
+train <- sample(N,K,rep=F)
+rest <- setdiff(1:N,train)
+test <- sample(rest,K,rep=F)
+
+train.df <- Titanic.df[train,]
+test.df <- Titanic.df[test,]
+
+nrow(train.df)
+nrow(test.df)
+```
+
+
+large C: flexible, small margin. High variance, small bias
+```{r}
+C <- 1
+svmfitBigC <-
+  svm(survived~age+fare,data=train.df,kernel="linear",cost=C,scale=F)
+summary(svmfitBigC)
+
+pred <- predict(svmfitBigC, newdata=test.df)
+head(pred)
+table(test.df$survived,pred>0.4)
+```
+
+
+small C: inflexible, large margin. Small variance, high bias
+```{r}
+C <- .01
+svmfitSmallC <-
+  svm(survived~age+fare,data=train.df,kernel="linear",cost=C,scale=F)
+summary(svmfitSmallC)
+
+pred <- predict(svmfitSmallC, newdata=test.df)
+head(pred)
+table(test.df$survived,pred>0.4)
+```
+
+
+
+SVM with a linear kernel
+```{r,warning=FALSE}
+cost.vals <- 10^seq(-2,4,length=10)
+svmfit.tune <- tune.svm(survived~age+fare,data=train.df,kernel="linear",cost=cost.vals,scale=T)
+
+svmfit.lin <- svmfit.tune$best.model
+svmfit.lin
+```
+
+
+Using the linear kernel training model to predict on the test data
+```{r}
+pred2 <- predict(svmfit.lin, newdata=test.df)
+head(pred2)
+table(test.df$survived,pred2>0.4)
+```
+
+
+SVM with a radial kernel
+```{r}
+svm.tuned <- tune.svm(survived~age+fare,data=train.df,kernel="radial",scale=T,
+                      cost=cost.vals,gamma=.50)
+
+svmfit.rad <- svm.tuned$best.model
+svmfit.rad
+```
+
+Using the radial kernel training model, to predict on the test data
+```{r}
+pred3 <- predict(svmfit.rad, newdata=test.df)
+head(pred3)
+table(test.df$survived,pred3>0.4)
+```
+
+
+
+SVM with a polynomial kernel
+```{r,warning=FALSE,message=FALSE}
+cost.vals <- 10^seq(-2,4,length=10)
+svmfit.tune <- tune.svm(survived~age+fare,data=train.df,kernel="polynomial",cost=cost.vals,scale=T)
+
+svmfit.poly <- svmfit.tune$best.model
+svmfit.poly
+```
+
+
+Using the polynomial kernel training model, to predict on the test data
+```{r}
+pred4 <- predict(svmfit.poly, newdata=test.df)
+head(pred4)
+table(test.df$survived,pred4>0.4)
+```

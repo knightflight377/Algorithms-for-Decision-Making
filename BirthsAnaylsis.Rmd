@@ -1,0 +1,373 @@
+---
+title: "Midterm Project - Childbirth Data"
+author: "AMS, EH, IT"
+date: "November 7, 2015"
+output: pdf_document
+---
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+library(ISLR)
+library(MASS)
+library(FNN)
+library(class)
+
+library(tree)
+library(randomForest)
+```
+
+After importing the libraries and setting the working directory; loading the data, numerical summaries (1 = married, 2 = not married); removing the NAs for variables of interest
+
+```{r}
+BirthData <- read.csv("~/Documents/College1516/Algorithms for Decision Making/Midterm Project/ncbirths.csv")
+```
+
+```{r, echo=FALSE, include=FALSE}
+names(BirthData)
+str(BirthData)
+nrow(BirthData)
+summary(BirthData)
+
+BirthData <- filter(BirthData, !is.na(Gained))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(Premie))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(MomAge))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(RaceMom))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(Plural))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(Marital))
+nrow(BirthData)
+
+BirthData <- filter(BirthData, !is.na(Smoke))
+nrow(BirthData)
+```
+...
+
+
+Breaking the data up into training, testing
+
+```{r}
+N <- nrow(BirthData)
+train <- sample(1:N,N/2,rep=F)
+
+BirthTrain <- BirthData[train,]
+nrow(BirthTrain)
+
+
+BirthTest <- BirthData[-train,]
+nrow(BirthTest)
+
+## Removing a random row from BirthTest, so that it has the same # of rows as BirthTrain
+N <- nrow(BirthTest)
+delete <- sample(1:N,1,rep=F)
+BirthTest <- BirthTest[-delete,]
+
+nrow(BirthTest)
+nrow(BirthTrain)
+```
+
+
+
+Method 1: K-Nearest Neighbors
+
+Creating matrices of training, testing values
+```{r}
+n <- nrow(BirthTrain)
+train.vals <- with(BirthTrain,cbind(MomAge,RaceMom,Gained,Marital,Plural,Smoke))
+resp1 <- with(BirthTrain,Premie)
+dim(resp1) <- c(n,1)
+test.vals <- with(BirthTest,cbind(MomAge,RaceMom,Gained,Marital,Plural,Smoke))
+resp2 <- with(BirthTest,Premie)
+
+```
+
+
+Build the training values
+```{r}
+dim(train.vals)
+train.df <-
+  data.frame(MomAge=train.vals[,1],RaceMom=train.vals[,2],Gained=train.vals[,3],Marital=train.vals[,4],Plural=train.vals[,5],Smoke=train.vals[,6],Premie=resp1)
+```
+
+
+KNN classification on testing data
+```{r}
+k <- 10
+cl <- train.df[,7]
+
+set.seed(1)
+knn.pred=knn(train.vals,test.vals,cl,k)
+
+table(knn.pred,BirthTest[,14])
+```
+
+For this sampling of the data, we have...
+597 correct predictions of non-premature;
+104 incorrect predictions of premature;
+2 incorrect predictions of non-premature;
+1 correct predictions of premature;
+
+Calculating the percentage of incorrect predictions (the error term)
+```{r}
+(2+104)/704
+```
+
+
+Repetitions of setting up training/testing data, creating train.vals and test.vals, etc. a bunch of different times
+
+```{r}
+A = 100
+list.error<-rep(0,A)
+for(a in 1:A){
+  N <- nrow(BirthData)
+  train <- sample(1:N,N/2,rep=F)
+  BirthTrain <- BirthData[train,]
+  BirthTest <- BirthData[-train,]
+  N <- nrow(BirthTest)
+  delete <- sample(1:N,1,rep=F)
+  BirthTest <- BirthTest[-delete,]
+  
+  n <- nrow(BirthTrain)
+  train.vals <- with(BirthTrain,cbind(MomAge,RaceMom,Gained,Marital,Plural,Smoke))
+  resp1 <- with(BirthTrain,Premie)
+  dim(resp1) <- c(n,1)
+  test.vals <- with(BirthTest,cbind(MomAge,RaceMom,Gained,Marital,Plural,Smoke))
+  resp2 <- with(BirthTest,Premie)
+  
+  train.df <-
+  data.frame(MomAge=train.vals[,1],RaceMom=train.vals[,2],Gained=train.vals[,3],
+             Marital=train.vals[,4],Plural=train.vals[,5],Smoke=train.vals[,6],Premie=resp1)
+  
+  k <- 4
+  cl <- train.df[,7]
+
+  set.seed(1)
+  knn.pred=knn(train.vals,test.vals,cl,k)
+
+  confusion <- table(knn.pred,BirthTest[,14])
+  
+  thing1 <- confusion[1,"1"]
+  thing2 <- confusion[2,"0"]
+  numWrong <- thing1+thing2
+    
+  list.error[a] <- numWrong/nrow(BirthTrain)
+}
+
+list.error
+ErrorKNN <- mean(list.error)
+ErrorKNN
+```
+
+
+Will give you values of k for each row of test.vals
+```{r}
+test.pred <- apply (test.vals, 1, function(pt) knn(train.vals, test.vals, cl, k))
+
+```
+
+
+Apply to matrix of test values
+```{r, warning=FALSE,message=FALSE}
+resp.test <- with(BirthTest,cbind(Premie,test.vals))
+test.df <-
+  data.frame(MomAge=test.vals[,1],RaceMom=test.vals[,2],Gained=test.vals[,3],Marital=test.vals[,4],Plural=test.vals[,5],Smoke=test.vals[,6],Premie=resp2)
+
+
+k <- 3
+knn(train.vals,train.vals[1,],cl,1)
+
+## Predictions
+pred.train <- apply(train.vals,1, function(x)
+  knn(train.vals,x,cl,k))
+## cbind(pred.train,resp1,train.df$z)
+
+pred.test <- apply(test.vals,1, function(x)
+  knn(train.vals,x,cl,k))
+## cbind(pred.test,resp2,test.df$z)
+train.df$pred <- pred.train
+test.df$pred <- pred.test
+
+train.df<- train.df %>% mutate(Premie=as.numeric(as.character(Premie)))
+test.df<- test.df %>% mutate(Premie=as.numeric(as.character(Premie)))
+
+train.df<- train.df %>% mutate(pred=as.numeric(as.character(pred)))
+test.df<- test.df %>% mutate(pred=as.numeric(as.character(pred)))
+##
+(mse.train <- with(train.df,mean((Premie-pred)^2)))
+(mse.test <- with(test.df,mean((Premie-pred)^2)))
+
+```
+
+
+Best k... just a quick look at "MSE"" as a function of k
+NOTE: no averaging over different test data
+```{r, warning=FALSE}
+K <- 20
+pred.vals <- rep(0,K)
+for(k in 1:K){
+  print(k)
+  pred.test <- apply(test.vals,1, function(x)
+    knn(train.vals,x,cl,k))
+  
+  test.df$pred <- pred.test
+  test.df<- test.df %>% mutate(pred=as.numeric(as.character(pred)))
+  pred.vals[k] <- with(test.df,mean((Premie-pred)^2))
+}
+pred.vals
+
+plot(pred.vals)
+##k about.....??
+
+k <- 6
+
+pred.test <- apply(test.vals,1, function(x)
+    knn(train.vals,x,cl,k))
+  
+test.df$pred <- pred.test
+test.df<- test.df %>% mutate(pred=as.numeric(as.character(pred)))
+  
+(mse.knn <- with(test.df,mean((Premie-pred)^2)))
+
+```
+
+
+Looking at "error" over different values of k
+```{r}
+K = 20
+cv.mse<-rep(0,K)
+k<-5
+for(k in 1:K){
+  pred.test <- apply(test.vals,1, function(x) knn(train.vals,x,cl,k))
+  test.df$pred <- pred.test
+  cv.mse[k] <- with(test.df,mean(Premie!=pred))
+}
+cv.mse[1:K]
+mean(cv.mse)
+
+mseKNN <- min(cv.mse)
+```
+
+
+A plot of the "error" value as a function of k
+It looks like k = 10 is the "optimal" value (before it starts to drop off to the "null" error)
+
+```{r}
+ggplot(data.frame(k=1:K,mse=cv.mse),aes(k,mse))+geom_point()+geom_line()+
+    scale_x_continuous(breaks=1:K)+
+    ggtitle("MSE (not actually) over different values of k, for Birth Weight Data")
+
+with(test.df,table(Premie,pred))
+```
+
+
+
+Method 2: Trees
+```{r, message=FALSE, warning=FALSE}
+N <- nrow(BirthData)
+train <- sample(1:N,N/2,rep=F)
+BirthTrain <- BirthData[train,]
+BirthTest <- BirthData[-train,]
+
+Birth.tree=tree(Premie~MomAge+Gained+Smoke+Marital+Plural+RaceMom,data=BirthTrain)
+
+plot(Birth.tree)
+text(Birth.tree,pretty=10)
+
+pred <- predict(Birth.tree,newdata=BirthTest)
+mseTree <- sqrt(with(BirthTest, mean( (Premie-pred)^2)))
+```
+
+
+Pruning the tree, can do it, probably not worth it though
+```{r}
+Birth.cv <- cv.tree(Birth.tree)
+Birth.cv
+with(Birth.cv,plot(size,dev,type='b'))
+
+(id <- which.min(Birth.cv$dev))
+(best.size <- Birth.cv$size[id])
+
+Birth.prune <- prune.tree(Birth.tree,best=best.size)
+plot(Birth.prune)
+text(Birth.prune,pretty=10)
+
+##MSE for this
+pred <- predict(Birth.prune,newdata=BirthTest)
+msePrune <- sqrt(with(BirthTest, mean((Premie-pred)^2)))
+```
+
+
+Bagging the tree, randomForest doesn't like NA values, so they're filtered out
+```{r, warning=FALSE, message=FALSE}
+N<-nrow(BirthData)
+
+BirthTrain <- filter(BirthTrain, !is.na(MomAge))
+BirthTrain <- filter(BirthTrain, !is.na(Gained))
+BirthTrain <- filter(BirthTrain, !is.na(Smoke))
+BirthTrain <- filter(BirthTrain, !is.na(Marital))
+BirthTrain <- filter(BirthTrain, !is.na(Plural))
+BirthTrain <- filter(BirthTrain, !is.na(RaceMom))
+BirthTrain <- filter(BirthTrain, !is.na(Premie))
+
+BirthTest <- filter(BirthTest, !is.na(MomAge))
+BirthTest <- filter(BirthTest, !is.na(Gained))
+BirthTest <- filter(BirthTest, !is.na(Smoke))
+BirthTest <- filter(BirthTest, !is.na(Marital))
+BirthTest <- filter(BirthTest, !is.na(Plural))
+BirthTest <- filter(BirthTest, !is.na(RaceMom))
+BirthTest <- filter(BirthTest, !is.na(Premie))
+
+
+boot.tree<-list()
+numBoots<-500
+for(b in 1:numBoots){
+  boot.samp<-sample(1:N,N,rep=T)
+  boot.df<-BirthData[boot.samp,]
+  boot.tree[[b]]<-tree(Premie~MomAge+Gained+Smoke+Marital+Plural+RaceMom,data=boot.df)
+}
+
+predBoot<-function(dat.df,boot.tree){
+  N<-nrow(dat.df)
+  B<-length(boot.tree)
+  preds<-matrix(NA,nrow=N,ncol=B)
+  for(b in 1:B){
+    pred<-predict(boot.tree[[b]],newdata=dat.df)
+    preds[,b]<-pred
+  }
+  rowMeans(preds)
+}
+
+
+BirthTrain <- BirthData[train,]
+pred.boot<-predBoot(BirthTrain,boot.tree)
+BirthTrain$sal.pred1<-pred.boot
+with(BirthTrain,mean( (Premie-sal.pred1)^2))
+
+Birth.bag<-randomForest(Premie~Gained+MomAge+Smoke+Marital+
+                        Plural+RaceMom,data=BirthTest,mtry=2)
+Birth.bag
+
+pred<-predict(Birth.bag,newdata=BirthTrain)
+BirthTrain$sal.pred2<-pred
+mseBagging <- with(BirthTrain,mean( (Premie-sal.pred2)^2))
+```
+
+
+
+Putting all the MSEs together to see which method is best (from left to right: KNN, Original Tree, Pruned Tree, Bagged Tree)
+```{r}
+MSECollection = c(ErrorKNN, mseTree, msePrune, mseBagging)
+MSECollection
+```
+
+Looking at these values side-by-side, it looks like the bagged trees resulted in the lowest error, followed by KNN.
